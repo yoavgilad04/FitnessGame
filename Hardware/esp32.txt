@@ -1,0 +1,1040 @@
+#include <Arduino.h>
+#include <esp_now.h>
+#include <esp_system.h>
+#include <WiFi.h>
+#include <Adafruit_NeoPixel.h> // for light
+#include <chrono>              // for time.
+
+#ifdef __AVR__
+#include <avr/power.h> // Required for 16 MHz Adafruit Trinket
+#endif
+
+#if defined(__AVR_ATtiny85__) && (F_CPU == 16000000)
+clock_prescale_set(clock_div_1);
+#endif
+
+#define CHANNEL 1 // the ESP-NOW channel
+#define ESP_NOW_ROLE_COMBO 3
+
+#define NO_BLINK 0
+#define YES_BLINK 1
+// Setting Up the Neopixels
+#define PIN 2        // the neopixels pin 2 is for D2 - Which pin on the esp32 is connected to the NeoPixels?
+#define NUMPIXELS 16 // Popular NeoPixel ring size - How many NeoPixels are attached to the Arduino?
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+
+#define NUMBER_OF_COLORS 9
+#define ESP32_LAMP 1
+#define NUM_OF_PEERS_IN_ARRAY 4
+#define NUM_OF_PEERS 3
+#define ON 1
+#define OFF 0
+#define SUCCESS 1
+#define INDEX_CORECTION 3
+const byte buttonPin = 5; // the number of the pushbutton pin - connect to D5 on the ESP32
+int buttonState = 0;      // variable for reading the pushbutton status - will change to 1 when button is pushed.
+int color_for_player_number_1 = 0, color_for_player_number_2 = 0;
+
+int good = 0, not_good = 0;
+
+int color_pushed_counter[NUMBER_OF_COLORS + 1];
+bool light_status[NUM_OF_PEERS + 2];
+
+bool paused = false;
+
+int lamp_pushed_number = 1; // the lamp that was just turned off.
+int index_for_training = 0, max_index_of_training = 0;
+int training[500] = {0};
+
+int time_remain = 0;
+std::chrono::steady_clock::time_point startTime; // Global variable for time.
+
+uint8_t peer_addr[NUM_OF_PEERS_IN_ARRAY][6] = {{0x86, 0xF3, 0xEB, 0xB3, 0xF3, 0xF3}, {0x86, 0xF3, 0xEB, 0x73, 0x4B, 0xE2}, {0x52, 0x02, 0x91, 0x4E, 0x71, 0x33}, {0x8C, 0xAA, 0xB5, 0xC6, 0x8C, 0xAF}}; //{0x0C, 0xB8, 0x15 , 0x77, 0x71 , 0x39},
+enum GAMEstate
+{
+  GAME1 = 1,
+  GAME2,
+  GAME3,
+  GAME4,
+  TRAINING,
+  PAUSE,
+  BLINK,
+  TURN_OFF,
+  NOT_DECIDED
+};
+
+enum RGBColor
+{
+  NO_COLOR = 0,
+  RED = 1, // Red
+  GREEN,   // Green
+  BLUE,    // Set the second pixel to blue
+  BROWN,   // Set the first pixel to BROWN
+  CYAN,    // Set the third pixel to Cyan
+  WHITE,   // Set the fourth pixel to white
+  ORANGE,  // Set the fifth pixel to orange
+  PINK,    // Set the sixth pixel to pink
+  PURPEL,  // Set the sixth pixel to purpel
+};
+enum RGBColor color_on_the_32 = RED;
+
+int game1(enum RGBColor random_or_color, bool trainings);
+int turnOnAndWaitUntillButtonPushed(int lamp_number, RGBColor color);
+void trafficLight();
+
+void game2(enum RGBColor color);
+int who_is_first(int lamp_with_chosen_color);
+int putDiffrentColorsInArray(RGBColor colors[], int index);
+int turnAllLightsOnInDiffrentColors(enum RGBColor color, RGBColor colors[]);
+int PutNoColorInArr(RGBColor colors[]);
+void switchColor(int index1, int index2, RGBColor colors[]);
+
+void turnPixelsOn(RGBColor color);
+int turnOnLampInColor(int lamp_number, RGBColor color);
+void turnPixelsOff();
+void turnAllOfThemeOff();
+void fleshColor(RGBColor color, int n, int p);
+void blinkColorToEveryone(RGBColor color, int n, int p);
+void turnOffAfterPushedWithFlesh();
+void notPreesOnTimeLight();
+void espnowConnecetSucssefullyLight();
+void espnowErrorConnecetionLight();
+void errorViaBluetooth();
+int giveDifferenteLampNumberThan(int lamp);
+int waitForRespond8266();
+int waitForRespond32();
+void sendGameStateToEveryOne(GAMEstate game);
+void colorPushedCounterResetToZero();
+void bufferForButton();
+void startTimer(bool blink_or_not);
+int TimePassed();
+bool TimeExceeded();
+void lightsStatusResetToOff();
+void remember_low_f();
+void stop_if_pause();
+void game3(int color_for_player_number_1, int color_for_player_number_2);
+// Init ESP Now with fallback
+void InitESPNow()
+{
+
+  WiFi.disconnect();
+  if (esp_now_init() == ESP_OK)
+  {
+    // espnowConnecetSucssefullyLight();
+    Serial.println("ESPNow Init Success");
+  }
+  else
+  {
+    Serial.println("ESPNow Init Failed");
+    espnowErrorConnecetionLight();
+    ESP.restart();
+  }
+}
+
+bool remember_low = false;
+bool button_has_been_pushed = false;
+int max_rounds_of_the_game = 500000;
+int max_time_of_the_game = 120;
+GAMEstate state_of_game = NOT_DECIDED;
+RGBColor color_to_send = GREEN;
+GAMEstate game_state_to_send = NOT_DECIDED;
+
+int n_to_blink = 0;
+int p_to_blink = 0;
+
+uint8_t data_inf[4] = {0};
+
+void sendData(int i)
+{
+  data_inf[0] = static_cast<uint8_t>(game_state_to_send);
+  data_inf[1] = static_cast<uint8_t>(color_to_send);
+  data_inf[2] = n_to_blink;
+  data_inf[3] = p_to_blink;
+
+  Serial.print("Sending color number: ");
+  Serial.println(data_inf[1]);
+
+  esp_err_t result = esp_now_send(peer_addr[i], data_inf, sizeof(data_inf));
+
+  Serial.print("Send Status: ");
+  if (result == ESP_OK)
+  {
+    Serial.println("Success");
+    return;
+  }
+  else if (result == ESP_ERR_ESPNOW_NOT_INIT)
+  {
+    // How did we get so far!!
+    Serial.println("ESPNOW not Init.");
+  }
+  else if (result == ESP_ERR_ESPNOW_ARG)
+  {
+    Serial.println("Invalid Argument");
+  }
+  else if (result == ESP_ERR_ESPNOW_INTERNAL)
+  {
+    Serial.println("Internal Error");
+  }
+  else if (result == ESP_ERR_ESPNOW_NO_MEM)
+  {
+    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
+  }
+  else if (result == ESP_ERR_ESPNOW_NOT_FOUND)
+  {
+    Serial.println("Peer not found.");
+  }
+  else
+  {
+    Serial.println("Not sure what happened");
+  }
+  // espnowErrorConnecetionLight();
+}
+
+// callback when data is sent from Master to Slave
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+
+  if (status != ESP_NOW_SEND_SUCCESS)
+  {
+ 
+    turnAllOfThemeOff();
+    errorViaBluetooth();
+    fleshColor(RED, 6, 6);
+    ESP.restart();
+  }
+}
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+  switch (state_of_game)
+  {
+  case 1: // GAME1
+  {
+    /* danger! danger! ---- if you pu her: "button_has_been_pushed = true;" you will
+      have a big bug in your progrem! put thet sentance at the end of this function*/
+    Serial.print("change buttonstat_elsewhere to false");
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+    Serial.print("Last Packet Recv from: ");
+    Serial.println(macStr);
+    Serial.print("Last Packet Recv Data: ");
+    Serial.println(*data);
+    Serial.println("");
+
+    // you put that last!
+    button_has_been_pushed = true;
+  }
+  case 2:                         // GAME2
+    lamp_pushed_number = data[0]; // data[0] is the number of the lamp that was pushed.
+    button_has_been_pushed = true;
+    break;
+  case 3:                            // GAME3
+    color_pushed_counter[data[1]]++; // data[1] will contain the color that lamp number data[0] was turn on and just pushed right now.
+    light_status[data[0]] = OFF;     // data[0] is the number of the lamp that was pushed.
+    break;
+  case 4: // GAME4
+  {
+    Serial.print("change buttonstat_elsewhere to false");
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+    Serial.print("Last Packet Recv from: ");
+    Serial.println(macStr);
+    Serial.print("Last Packet Recv Data: ");
+    Serial.println(*data);
+    Serial.println("");
+
+    // you put that last!
+    button_has_been_pushed = true;
+  }
+  break;
+  case 5: // TRAINING
+    training[index_for_training++] = data[0];
+    max_index_of_training = index_for_training;
+    button_has_been_pushed = true;
+    break;
+  case 6: // PAUSE
+    break;
+  case 7: // BLINK
+    break;
+  case 8: // TURN_OFF
+    break;
+  case 9: // NOT_DECIDED
+    break;
+  default:
+    Serial.println("Invalid choice.");
+    break;
+  }
+}
+
+#include <BLEDevice.h>
+// #include <BLEServer.h>
+// #include <BLEUtils.h>
+// #include <BLE2902.h>
+
+BLEServer *pServer = NULL;
+BLECharacteristic *pCharacteristic = NULL;
+// BLEDescriptor *pDescr;
+// BLE2902 *pBLE2902;
+
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+uint32_t value = 60;
+
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+class MyServerCallbacks : public BLEServerCallbacks
+{
+  void onConnect(BLEServer *pServer)
+  {
+    deviceConnected = true;
+  };
+
+  void onDisconnect(BLEServer *pServer)
+  {
+    deviceConnected = false;
+  }
+};
+
+class MyCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    std::string value = pCharacteristic->getValue();
+    // fleshColor(GREEN,from_str_to_int(value[0]),1);
+    if (static_cast<enum GAMEstate>(static_cast<int>(value[0])) != PAUSE)
+    {
+      if (paused == false)
+      {
+        color_for_player_number_1 = static_cast<int>(value[2]);
+        color_for_player_number_2 = static_cast<int>(value[3]);
+        max_time_of_the_game = static_cast<int>(value[1]);
+        state_of_game = static_cast<enum GAMEstate>(static_cast<int>(value[0]));
+      }
+      else
+      {
+        paused = false;
+
+        state_of_game = static_cast<enum GAMEstate>(static_cast<int>(value[0]));
+      }
+    }
+
+    else
+    {
+      state_of_game = PAUSE;
+    }
+  }
+};
+
+/////////////////////////////////////////////////////
+// Add the ESP8266 as a peer
+esp_now_peer_info_t peer[NUM_OF_PEERS];
+void setup()
+{
+  delay(2000);
+  Serial.begin(115200);
+
+  // Create the BLE Device
+  BLEDevice::init("ESP32");
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create a BLE Characteristic
+  pCharacteristic = pService->createCharacteristic(
+      CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_READ |
+          BLECharacteristic::PROPERTY_WRITE);
+
+  // Define the callbacks
+
+  pCharacteristic->setCallbacks(new MyCallbacks());
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(false);
+  pAdvertising->setMinPreferred(0x0); // set value to 0x00 to not advertise this parameter
+  BLEDevice::startAdvertising();
+  Serial.println("Waiting a client connection to notify...");
+
+  ///////////////////////////////////////////////////
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  turnPixelsOff();
+  // initialize the pushbutton pin as an input:
+  pinMode(buttonPin, INPUT);
+
+  // Set device in AP and STA mode to begin the comunication
+  WiFi.mode(WIFI_AP_STA);
+
+  Serial.println("ESPNow/bidirectional_esp32");
+
+  // This is the mac address of the Master in Station Mode
+  Serial.print("STA MAC: ");
+  Serial.println(WiFi.macAddress());
+
+  // Init ESPNow with a fallback logic
+  InitESPNow();
+
+  //  register functions
+  esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv);
+
+  for (int i = 0; i < NUM_OF_PEERS; i++)
+  {
+    memcpy(peer[i].peer_addr, peer_addr[i], 6);
+    peer[i].channel = 0;
+    peer[i].encrypt = false;
+    if (esp_now_add_peer(&peer[i]) != ESP_OK)
+    {
+      Serial.print("Failed to add peer number ");
+      Serial.println(i + 2);
+      Serial.print("not initiated anyone after that include.");
+      // ofek tell the user that we are going to a restart.
+      ESP.restart();
+      return;
+    }
+    else
+    {
+      Serial.print("added peer number: ");
+      Serial.println(i + 2);
+    }
+  }
+  Serial.println("Ready to send messages");
+
+  state_of_game = NOT_DECIDED;
+}
+bool first_time = true;
+bool blink_once_after_game = true;
+bool train = false;
+void loop()
+{
+
+  uint8_t val[2] = {0};
+  int res1 = 0, res2 = 0, original_max_time = 0, original_color_for_player_number_1 = 0, original_color_for_player_number_2 = 0;
+  switch (state_of_game)
+  {
+  case 1: // GAME1
+    trafficLight();
+    delay(1000);
+    index_for_training = 0;
+    // if color for plaer 1 is 0 than the color will be random.
+    val[0] = static_cast<uint8_t>(game1(static_cast<enum RGBColor>(color_for_player_number_1), train));
+    index_for_training = 0;
+    max_index_of_training = 0;
+
+    pCharacteristic->setValue(val, sizeof(val));
+    pCharacteristic->notify();
+
+    // end of game
+    blinkColorToEveryone(RED, 3, 1);
+    train = false;
+    blink_once_after_game = true;
+
+    state_of_game = NOT_DECIDED;
+    break;
+  case 2: // GAME2
+    Serial.println("game2");
+    trafficLight();
+    delay(1000);
+    game2(static_cast<enum RGBColor>(color_for_player_number_1));
+
+    val[0] = good;
+    val[1] = not_good;
+    pCharacteristic->setValue(val, sizeof(val));
+    pCharacteristic->notify();
+
+    // end of game
+    blinkColorToEveryone(RED, 3, 1);
+    good = 0;
+    not_good = 0;
+    blink_once_after_game = true;
+
+    state_of_game = NOT_DECIDED;
+    break;
+  case 3: // GAME3
+    original_color_for_player_number_1 = color_for_player_number_1;
+    original_color_for_player_number_2 = color_for_player_number_2;
+    // blinkColorToEveryone(static_cast<enum RGBColor>(color_for_player_number_1), 2, 1);
+    // blinkColorToEveryone(static_cast<enum RGBColor>(color_for_player_number_2), 2, 1);
+    trafficLight();
+    delay(1000);
+    game3(color_for_player_number_1, color_for_player_number_2);
+
+    val[0] = static_cast<uint8_t>(color_pushed_counter[original_color_for_player_number_1]);
+    val[1] = static_cast<uint8_t>(color_pushed_counter[original_color_for_player_number_2]);
+    ((color_pushed_counter[original_color_for_player_number_1] == color_pushed_counter[original_color_for_player_number_2]) ? blinkColorToEveryone(GREEN, 3, 1) : (blinkColorToEveryone(((color_pushed_counter[original_color_for_player_number_1] > color_pushed_counter[original_color_for_player_number_2]) ? static_cast<enum RGBColor>(original_color_for_player_number_1) : static_cast<enum RGBColor>(original_color_for_player_number_2)), 3, 1)));
+
+    pCharacteristic->setValue(val, sizeof(val));
+    pCharacteristic->notify();
+
+    // send ofek color_pushed_counter[color_for_player_number_1],color_pushed_counter[color_for_player_number_2]
+    colorPushedCounterResetToZero(); // dont delet that! you need to first send this information and only than delet that. so thats the right place.
+    blink_once_after_game = true;
+
+    state_of_game = NOT_DECIDED;
+    break;
+  case 4: // GAME4
+    blinkColorToEveryone(static_cast<enum RGBColor>(color_for_player_number_1), 4, 1);
+    original_color_for_player_number_1 = color_for_player_number_1;
+    original_color_for_player_number_2 = color_for_player_number_2;
+    original_max_time = max_time_of_the_game;
+    res1 = game1(static_cast<enum RGBColor>(color_for_player_number_1), false);
+    state_of_game = GAME4;
+    color_for_player_number_2 = original_color_for_player_number_2;
+    color_for_player_number_1 = original_color_for_player_number_1;
+    max_time_of_the_game = original_max_time;
+    blinkColorToEveryone(static_cast<enum RGBColor>(color_for_player_number_2), 4, 1);
+
+    res2 = game1(static_cast<enum RGBColor>(color_for_player_number_2), false);
+    val[0] = res1;
+    val[1] = res2;
+    pCharacteristic->setValue(val, sizeof(val));
+    pCharacteristic->notify();
+
+    // delay(2000);
+    // if its a tie than gerrn will show up, if not than the color of the winner.
+    ((res1 == res2) ? blinkColorToEveryone(GREEN, 3, 1) : (blinkColorToEveryone(((res1 > res2) ? static_cast<enum RGBColor>(original_color_for_player_number_1) : static_cast<enum RGBColor>(original_color_for_player_number_2)), 3, 1)));
+    blink_once_after_game = true;
+
+    state_of_game = NOT_DECIDED;
+
+    break;
+  case 5: // TRAINING
+    index_for_training = 0;
+    if (max_time_of_the_game != 5000)
+      blinkColorToEveryone(RED, 3, 1);
+    game2(NO_COLOR);
+    // blinkColorToEveryone(GREEN, 3, 1); // the patterns has been loaded succesfully.
+    train = true;
+    // blink_once_after_game = true;
+    state_of_game = NOT_DECIDED;
+    break;
+  case 6: // PAUSE
+    break;
+  case 7: // BLINK
+    break;
+  case 8: // TURN_OFF
+    break;
+  case 9: // NOT_DECIDED
+    if (deviceConnected == false)
+    {
+      BLEDevice::startAdvertising();
+      blinkColorToEveryone(RED, 3, 3);
+      first_time = true;
+      uint8_t val[1] = {0};
+      val[0] = 100;
+      pCharacteristic->setValue(val, sizeof(val));
+      pCharacteristic->notify();
+    }
+    else
+    {
+      if (first_time || blink_once_after_game)
+      {
+        blinkColorToEveryone(BLUE, 3, 1);
+        first_time = false;
+        blink_once_after_game = false;
+        uint8_t val[1] = {0};
+        val[0] = 100;
+        pCharacteristic->setValue(val, sizeof(val));
+        pCharacteristic->notify();
+      }
+      turnAllOfThemeOff();
+    }
+    break;
+  default:
+    Serial.println("Invalid choice.");
+    break;
+  }
+}
+int game1(enum RGBColor random_or_color, bool trainings)
+{
+  turnAllOfThemeOff(); // just for case of a bug
+  Serial.println("start timer");
+  startTimer(YES_BLINK); // Start the timer
+  int lamp_number = 0, rounds = 0, clicks = 0;
+  RGBColor color;
+
+  while (((rounds < max_rounds_of_the_game) && (TimeExceeded() == false) && (state_of_game != TURN_OFF))) // && (max_index_of_training == 0 || index_for_training <= max_index_of_training))
+  {
+    lamp_number = ((trainings == true) ? training[index_for_training++] : random(1, NUM_OF_PEERS + 2)); // 1 or 2 or 3 or ... 5-1
+    color = ((random_or_color) ? (random_or_color) : static_cast<enum RGBColor>(random(3, NUMBER_OF_COLORS + 1)));
+    clicks += turnOnAndWaitUntillButtonPushed(lamp_number, color);
+    rounds++;
+    if (index_for_training == max_index_of_training)
+
+      index_for_training = 0;
+  }
+
+  turnAllOfThemeOff();
+  return clicks;
+}
+
+int turnOnAndWaitUntillButtonPushed(int lamp_number, RGBColor color)
+{
+  int prees_or_not = 0;
+  turnOnLampInColor(lamp_number, color);
+
+  return ((lamp_number == ESP32_LAMP) ? waitForRespond32() : waitForRespond8266());
+}
+
+int waitForRespond8266()
+{
+  while (TimeExceeded() == false && (state_of_game != TURN_OFF))
+  {
+    stop_if_pause();
+    if (button_has_been_pushed == true)
+    {
+      button_has_been_pushed = false;
+      return 1;
+    }
+  }
+  turnAllOfThemeOff(); // not neccery but for safty.
+  return 0;
+}
+
+int waitForRespond32()
+{
+
+  while (TimeExceeded() == false && (state_of_game != TURN_OFF))
+  {
+    stop_if_pause();
+    buttonState = digitalRead(buttonPin);
+    if (buttonState == LOW)
+    {
+      turnOffAfterPushedWithFlesh();
+      bufferForButton();
+      return 1;
+    }
+  }
+
+  turnAllOfThemeOff(); // not neccery but for safty.
+  return 0;
+}
+
+void turnOffAfterPushedWithFlesh()
+{
+  fleshColor((state_of_game == TRAINING) ? GREEN : color_on_the_32, 3, 21);
+}
+
+void game2(enum RGBColor color)
+{
+  turnAllOfThemeOff();   // just for case of a bug
+  startTimer(YES_BLINK); // Start the timer
+
+  int lamp_with_chosen_color = 0, rounds = 0, score = 0;
+  RGBColor colors[NUMBER_OF_COLORS - 2] = {BLUE, BROWN, CYAN, WHITE, ORANGE, PINK, PURPEL}; //{NO_COLOR};
+  switchColor(0, (static_cast<int>(color) - INDEX_CORECTION), colors);                                   
+
+  if (color == NO_COLOR)
+    PutNoColorInArr(colors);
+
+  while ((rounds < max_rounds_of_the_game) && (TimeExceeded() == false) && (state_of_game != TURN_OFF))
+  {
+    // put colors in an array that all of them are different from one another and different from the chosen color of course.
+    //((static_cast<bool>(color)) ? putDiffrentColorsInArray(static_cast<enum RGBColor>(color), colors, 0) : putDiffrentColorsInArray(static_cast<enum RGBColor>(color), colors, NUM_OF_PEERS));
+    ((static_cast<bool>(color)) ? (putDiffrentColorsInArray(colors, 1)) : Serial.println("nothing"));
+
+    lamp_with_chosen_color = turnAllLightsOnInDiffrentColors(color, colors);
+
+    // if the correct lamp ("lamp_with_chosen_color") pushed first, will return 1, if other lamp has been pushed first, return -1,if time end, return 0.
+    (who_is_first(lamp_with_chosen_color) == SUCCESS) ? good++ : not_good++;
+    if (TimeExceeded() == true)
+      not_good--;
+
+    // turning off all lamps.
+    turnAllOfThemeOff();
+    rounds++;
+  }
+  turnAllOfThemeOff();
+  return;
+}
+
+int turnAllLightsOnInDiffrentColors(enum RGBColor color, RGBColor colors[])
+{
+  int color_index = 1, lamp_with_chosen_color = 0;
+  lamp_with_chosen_color = random(1, NUM_OF_PEERS + 2);
+
+  for (int i = 1; i < NUM_OF_PEERS + 2; i++)
+  {
+    if (i == lamp_with_chosen_color)
+      continue;
+
+    turnOnLampInColor(i, colors[color_index++]);
+  }
+  turnOnLampInColor(lamp_with_chosen_color, color);
+
+  return lamp_with_chosen_color;
+}
+
+int who_is_first(int lamp_with_chosen_color)
+{
+  int score = 0;
+  while (TimeExceeded() == false && (state_of_game != TURN_OFF))
+  {
+    stop_if_pause();
+    if (button_has_been_pushed == true)
+    {
+      button_has_been_pushed = false;
+      score = ((lamp_with_chosen_color == lamp_pushed_number) ? 1 : -1);
+      break;
+    }
+    buttonState = digitalRead(buttonPin);
+    if (buttonState == LOW)
+    {
+      training[index_for_training++] = ESP32_LAMP;
+      max_index_of_training = index_for_training;
+      turnOffAfterPushedWithFlesh();
+      bufferForButton();
+      score = ((lamp_with_chosen_color == 1) ? 1 : -1);
+      break;
+    }
+  }
+  return score;
+}
+
+int putDiffrentColorsInArray(RGBColor colors[], int index)
+{
+  if (index > NUM_OF_PEERS)
+    return 0;
+
+  switchColor(index, random(index, NUMBER_OF_COLORS - 2), colors);
+  putDiffrentColorsInArray(colors, index + 1);
+  return 0;
+}
+
+void switchColor(int index1, int index2, RGBColor colors[])
+{
+  RGBColor temp = colors[index1];
+  colors[index1] = colors[index2];
+  colors[index2] = temp;
+  return;
+}
+
+int PutNoColorInArr(RGBColor colors[])
+{
+  for (int i = 0; i < NUMBER_OF_COLORS - 2; i++)
+    colors[i] = NO_COLOR;
+
+  return 0;
+}
+/*
+int putDiffrentColorsInArray(RGBColor color, RGBColor colors[], int index)
+{
+  if (index == NUM_OF_PEERS)
+    return 0;
+  while (1)
+  {
+    colors[index] = static_cast<enum RGBColor>(random(3, NUMBER_OF_COLORS + 1));
+    int j = 0;
+    for (int i = 0; i < index; i++)
+    {
+      if (colors[i] != colors[index])
+        j++;
+    }
+    if ((j == index) && (colors[index] != color))
+      break;
+  }
+  putDiffrentColorsInArray(color, colors, index + 1);
+  return 0;
+}
+*/
+
+void game3(int color_for_player_number_1, int color_for_player_number_2)
+{
+  startTimer(YES_BLINK);    // Start the timer
+  lightsStatusResetToOff(); // turn all lights off and update the array of light status to "off" for all lights.
+  colorPushedCounterResetToZero();
+
+  int lamp_for_palyer_number_1 = random(1, NUM_OF_PEERS + 2);
+  int lamp_for_palyer_number_2 = giveDifferenteLampNumberThan(lamp_for_palyer_number_1);
+
+  while ((TimeExceeded() == false) && (state_of_game != TURN_OFF))
+  {
+    stop_if_pause();
+    remember_low_f();
+    if (light_status[lamp_for_palyer_number_1] == OFF)
+    {
+      lamp_for_palyer_number_1 = giveDifferenteLampNumberThan(lamp_for_palyer_number_2);
+      turnOnLampInColor(lamp_for_palyer_number_1, static_cast<RGBColor>(color_for_player_number_1));
+      light_status[lamp_for_palyer_number_1] = ON;
+    }
+    remember_low_f();
+    if (light_status[lamp_for_palyer_number_2] == OFF)
+    {
+      lamp_for_palyer_number_2 = giveDifferenteLampNumberThan(lamp_for_palyer_number_1);
+      turnOnLampInColor(lamp_for_palyer_number_2, static_cast<RGBColor>(color_for_player_number_2));
+      light_status[lamp_for_palyer_number_2] = ON;
+    }
+    if ((lamp_for_palyer_number_1 == ESP32_LAMP) || (lamp_for_palyer_number_2 == ESP32_LAMP))
+    {
+      buttonState = digitalRead(buttonPin);
+      if (buttonState == LOW || remember_low == true)
+      {
+        turnOffAfterPushedWithFlesh();
+        bufferForButton();
+        light_status[ESP32_LAMP] = OFF;
+        color_pushed_counter[(lamp_for_palyer_number_1 == ESP32_LAMP) ? color_for_player_number_1 : color_for_player_number_2]++;
+      }
+    }
+    remember_low = false;
+  }
+  turnAllOfThemeOff();
+
+  lightsStatusResetToOff(); // turn all lights off and update the array of light status to "off" for all lights.
+  return;
+}
+
+int giveDifferenteLampNumberThan(int lamp)
+{
+  int differente_lamp_number;
+  while (1)
+  {
+    differente_lamp_number = random(1, NUM_OF_PEERS + 2);
+    if (differente_lamp_number != lamp)
+      return differente_lamp_number;
+  }
+}
+
+void colorPushedCounterResetToZero()
+{
+  for (int i = 0; i < NUMBER_OF_COLORS + 1; i++)
+  {
+    color_pushed_counter[i] = 0;
+  }
+}
+
+void remember_low_f()
+{
+  buttonState = digitalRead(buttonPin);
+  if (buttonState == LOW)
+    remember_low = true;
+  return;
+}
+
+int turnOnLampInColor(int lamp_number, RGBColor color)
+{
+  if (lamp_number == ESP32_LAMP) // not sending information to anyone so its a specipice case
+  {
+    color_on_the_32 = color;
+    turnPixelsOn(color);
+  }
+  else // sending to an esp8266.
+  {
+    color_to_send = (color);
+    game_state_to_send = state_of_game; // it dosent really matter if its GAME1.
+    button_has_been_pushed = false;
+    sendData(lamp_number - 2);
+  }
+  return 0;
+}
+
+void blinkColorToEveryone(RGBColor color, int n, int p)
+{
+  color_to_send = color;
+  game_state_to_send = BLINK;
+  n_to_blink = n;
+  p_to_blink = p;
+
+  for (int i = 0; i < NUM_OF_PEERS; i++)
+  {
+    sendData(i);
+  }
+  fleshColor(color, n, p);
+}
+
+void turnPixelsOn(RGBColor color)
+{
+  int choice = color;
+  int r = 0, g = 0, b = 0;
+  switch (choice)
+  {
+  case 1: // Red
+    r = 255;
+    break;
+  case 2: // Green
+    g = 255;
+    break;
+  case 3: // BLUE
+    b = 255;
+    break;
+  case 4: // BROWN
+    r = 200;
+    g = 69;
+    break;
+  case 5: // CYAN
+    g = 255;
+    b = 255;
+    break;
+  case 6: // WHITE
+    r = 255;
+    g = 255;
+    b = 255;
+    break;
+  case 7: // ORANGE
+    r = 255;
+    g = 165;
+    break;
+  case 8: // PINK
+    r = 255;
+    g = 105;
+    b = 180;
+    break;
+  case 9: // PURPEL
+    r = 128;
+    b = 128;
+    break;
+  default:
+    // fleshColor(RED, 10, 5);
+    Serial.println("Invalid choice.\n");
+    break;
+  }
+  for (int i = 0; i < NUMPIXELS; i++)
+  {
+    pixels.setPixelColor(i, pixels.Color(r, g, b));
+    pixels.show(); // Send the updated pixel colors to the hardware.
+  }
+}
+void turnPixelsOff()
+{
+  for (int i = 0; i < NUMPIXELS; i++)
+  {
+    pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+    pixels.show(); // Send the updated pixel colors to the hardware.
+  }
+}
+
+void fleshColor(RGBColor color, int n, int p)
+{
+  if (p == 0)
+  {
+    return;
+  }
+  int del = 1000 / p;
+  for (int i = 0; i < n; i++)
+  {
+    turnPixelsOn(color);
+    delay(del / 2);
+    turnPixelsOff();
+    delay(del / 2);
+  }
+}
+void notPreesOnTimeLight()
+{
+  fleshColor(RED, 3, 3);
+  return;
+}
+void espnowConnecetSucssefullyLight()
+{
+  fleshColor(GREEN, 3, 3);
+}
+void espnowErrorConnecetionLight()
+{
+  fleshColor(RED, 10, 2);
+}
+void startTimer(bool blink_or_not)
+{
+  if (blink_or_not != NO_BLINK)
+    blinkColorToEveryone(GREEN, 5, 100);
+  startTime = std::chrono::steady_clock::now(); // Set the start time
+  return;
+}
+int TimePassed()
+{
+  auto currentTime = std::chrono::steady_clock::now();                                                     // Get the current time
+  auto elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime).count(); // Calculate the elapsed seconds
+  return elapsedSeconds;
+}
+bool TimeExceeded()
+{
+  if ((TimePassed() >= max_time_of_the_game))
+  {
+    Serial.println("Time out!!!!!!!!!");
+    return true;
+  }
+  return false;
+}
+void stopTimer()
+{
+  time_remain = max_time_of_the_game - TimePassed();
+}
+void resumTimer()
+{
+  max_time_of_the_game = time_remain;
+  startTimer(NO_BLINK);
+}
+void stop_if_pause()
+{
+  if (state_of_game == PAUSE)
+  {
+    paused = true;
+    stopTimer();
+    sendGameStateToEveryOne(state_of_game);
+
+    while (state_of_game == PAUSE) // ofek need to make sure that when he is resum the puse he send the correct game state again.
+    {
+      yield();
+    }
+    resumTimer();
+    sendGameStateToEveryOne(state_of_game);
+  }
+  return;
+}
+
+void sendGameStateToEveryOne(GAMEstate game)
+{
+  game_state_to_send = game;
+  for (int i = 0; i < NUM_OF_PEERS; i++)
+  {
+    sendData(i);
+  }
+}
+void turnAllOfThemeOff()
+{
+  turnPixelsOff();
+  sendGameStateToEveryOne(TURN_OFF);
+}
+void bufferForButton()
+{
+  buttonState = digitalRead(buttonPin);
+  while (buttonState == LOW)
+  {
+    buttonState = digitalRead(buttonPin);
+    if ((state_of_game == TURN_OFF) || TimeExceeded())
+      return;
+  }
+  return;
+}
+void lightsStatusResetToOff()
+{
+  turnAllOfThemeOff();
+  for (int i = 0; i < NUM_OF_PEERS + 2; i++)
+  {
+    light_status[i] = OFF;
+  }
+}
+
+void trafficLight()
+{
+  delay(10);
+  blinkColorToEveryone(RED, 1, 1);
+  delay(10);
+  blinkColorToEveryone(BROWN, 1, 1);
+  delay(10);
+  blinkColorToEveryone(GREEN, 1, 1);
+}
+
+void errorViaBluetooth()
+{
+  uint8_t val[1] = {0};
+  val[0] = 200;
+  pCharacteristic->setValue(val, sizeof(val));
+  pCharacteristic->notify();
+}
