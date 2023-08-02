@@ -152,6 +152,7 @@ class ChoosingGame extends StatelessWidget{
   @override
   Widget build(BuildContext context)
   {
+    
     var appState = context.watch<BLE_Connection>();
     Future.delayed(Duration.zero,() {
       asyncAlertBluetooth(const ConnectPage(homescreen: MyHomePage(title: "")), context);

@@ -24,7 +24,7 @@ class BLE_Connection extends ChangeNotifier{
   StreamSubscription<BluetoothDeviceState>? connectedSubscription;
   bool isScanning = false;
   bool isNotified = false;
-  List<int> read_value = [100,10];
+  List<int> read_value = [15,10];
 
 //--------------------------------------------Check if Bluetooth is Activated------------------------------//
   Future<bool> initBluetooth() async { 
@@ -83,12 +83,11 @@ class BLE_Connection extends ChangeNotifier{
       connectedSubscription = esp_device!.state.listen((s){ 
           if((s == BluetoothDeviceState.disconnected)||(s == BluetoothDeviceState.disconnecting))
           {
-            notifyListeners();
             esp_device!.disconnect();
             esp_device = null;
+            notifyListeners();
           }
       });
-      //compute(processBackground,null);
       List<BluetoothService> services = await esp_device!.discoverServices();
       services.forEach((service) {
         List<BluetoothCharacteristic> characteristics = service.characteristics;
@@ -97,14 +96,12 @@ class BLE_Connection extends ChangeNotifier{
             this.characteristic = characteristic;
             characteristic.setNotifyValue(true);
             subscription = characteristic.value.listen((value) {
-              if(value[0] != 100)
-              {
-                  notifyListeners();
-              
-              }
                   isNotified = true;
                   read_value = value;
-                  
+                  if(value[0] != 100)
+                  {
+                    notifyListeners();        
+                  }
                 });
           }
         });
