@@ -135,12 +135,18 @@ class LoadingPage extends StatelessWidget
               problem = await i.connectToDevice();
               if(problem == "")   //Connection Success
               {
-                  await i.write([9,3,3,3]);  //Default Writing for Connection Check
-                  if(i.read_value[0] == 100)
-                  {
-                    problem = "Connecting Success!";
+                  try
+                  { 
+                    await i.write([9,3,3,3]);  //Default Writing for Connection Check
+                    if(i.read_value[0] == 100)
+                    {
+                      problem = "Connecting Success!";
+                    }
+                    else{
+                      problem = "Please check your buttons!";
+                    }
                   }
-                  else
+                  catch(e)
                   {
                     problem = "Please check your buttons!";
                   }
@@ -161,7 +167,7 @@ class LoadingPage extends StatelessWidget
   
   @override
   Widget build(BuildContext context) {
-    init_and_connect().timeout(const Duration(seconds: 6),
+    init_and_connect().timeout(const Duration(seconds: 7),
     onTimeout: () => {
       
     });

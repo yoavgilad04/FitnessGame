@@ -97,7 +97,11 @@ class BLE_Connection extends ChangeNotifier{
             this.characteristic = characteristic;
             characteristic.setNotifyValue(true);
             subscription = characteristic.value.listen((value) {
+              if(value[0] != 100)
+              {
                   notifyListeners();
+              
+              }
                   isNotified = true;
                   read_value = value;
                   
