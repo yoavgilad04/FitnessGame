@@ -1,0 +1,32 @@
+name: fitness_game
+description: A simple Dart project.
+version: 1.0.0
+
+environment:
+  sdk: '>=3.1.0 <4.0.0' # Dart version bundled with Flutter 3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: 6.0.4 # Compatible with Dart >=3.0.0
+  flutter_blue_plus: 1.2.0 # Compatible with Flutter 3.13.0 and Dart >=3.0.0
+  geolocator: ^10.0.3 # Compatible with Flutter 3.13.0
+  flex_color_scheme: 6.1.2 # Compatible with Dart >=3.0.0
+  simple_gradient_text: 1.2.4
+  flutter_spinkit: ^5.1.0 # Compatible with Flutter 3.13.0 and Dart >=3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.1 # Compatible with Dart >=3.0.0
+
+flutter:
+  assets:
+    - assets/Game_Logo.png
+    - assets/Game_Logo_2.png
+    - assets/play_button.png
+    - assets/connect_button.png
+    - assets/settings_button.png
+    - assets/background.png
+  uses-material-design: true
+
