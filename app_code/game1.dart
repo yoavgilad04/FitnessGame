@@ -246,13 +246,14 @@ class _Game1TimerState extends State<Game1Timer> {
     timer = Timer.periodic(oneSec, 
     (Timer timer) async{
         if(current_time == 0)
-        {          
+        {
+          stopBackgroundMusic(gameMusicPlayer);
+          playBackgroundMusic(bgMusicPlayer);
           timer.cancel();
           setState(() {
             widget.waiting = true;
           });
           await Future.delayed(const Duration(seconds: 4));
-          //player.stop();
           if(context.mounted)
           {
             Navigator.push(
@@ -283,11 +284,9 @@ class _Game1TimerState extends State<Game1Timer> {
   @override
   void initState()
   {
+    stopBackgroundMusic(bgMusicPlayer);
     setCountDown();
     current_time = widget.time;
-    // player.seek(const Duration(seconds: 0));
-    // player.play();
-    // player.setVolume(1);
     super.initState();
   }
   @override
@@ -327,10 +326,9 @@ class _Game1TimerState extends State<Game1Timer> {
                 }),
                 BLE_Connection().write([8,1,1,1]),
                 await Future.delayed(const Duration(seconds: 4)),
-                //player.stop(),
                 Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (context) => Game1_Stats(actual_time: actualTime,homescreen: widget.homescreen,name: widget.name,))),
+                context,
+                MaterialPageRoute(builder: (context) => Game1_Stats(actual_time: actualTime,homescreen: widget.homescreen,name: widget.name,))),
               } : null, 
               child: buttonTextDisplay(Text("Finish",
                 style: Theme.of(context).textTheme.displayMedium))
@@ -345,12 +343,12 @@ class _Game1TimerState extends State<Game1Timer> {
                       //widget.isPaused ? player.pause() : player.play(),
                       setState(() => widget.title = widget.isPaused ? "Paused!" : "Game Is On"
                       ),
-                } : null, 
-                child: buttonTextDisplay(pauseIcon),                
+                } : null,
+                child: buttonTextDisplay(pauseIcon),
                 ),
             ),
               const Spacer(),
-         
+
                  ]),
          ),
       ),
@@ -367,6 +365,7 @@ class Game1_Stats extends StatelessWidget
   final Widget homescreen;
   final int actual_time;
   final String name;
+
   const Game1_Stats({super.key, required this.actual_time, required this.homescreen, required this.name});
 
   @override

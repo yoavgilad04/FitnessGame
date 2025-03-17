@@ -2,6 +2,7 @@
 
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 
 //---------------------Explainations for Each Game for Floating Window---------------------------//
@@ -97,8 +98,40 @@ var text2 = RichText(
       TextSpan(text: exp3[6])
     ]
   ));
+AudioPlayer bgMusicPlayer = AudioPlayer(); // Background music player
+AudioPlayer gameMusicPlayer = AudioPlayer(); // Game music player
+AudioPlayer countdownPlayer = AudioPlayer();
 
- const String game4_name = "Competition";
+void playBackgroundMusic(AudioPlayer player) async {
+  await player.stop(); // Stop any existing music before playing
+  await player.setReleaseMode(ReleaseMode.loop); // Ensure looping
+
+  // Choose the correct music file based on the player
+  String musicFile;
+  if (player == bgMusicPlayer) {
+    musicFile = 'background_music.mp3';
+  } else if (player == gameMusicPlayer) {
+    musicFile = 'game_music.mp3';
+  } else {
+    musicFile = 'countdown.mp3';
+  }
+
+  await player.play(AssetSource(musicFile));
+
+  // Ensure looping only for background and game music
+  if (musicFile != 'countdown.mp3') {
+    player.setReleaseMode(ReleaseMode.loop); // Enable looping
+  } else {
+    player.setReleaseMode(ReleaseMode.stop); // Play only once
+  }
+}
+
+void stopBackgroundMusic(AudioPlayer player) async {
+  await player.stop(); // Stop the specified music player
+}
+
+
+const String game4_name = "Competition";
  const String game4_title = "Competition!";
  const List<String> exp4 = ['''In this game, each player will seperately, aiming for the best score.\n''',
  "Number of players:"," 2\n",
@@ -257,7 +290,7 @@ var rainbowColors = <Color>[Colors.blue,Colors.red,Colors.green,Colors.yellow,Co
 
 double? fieldWidth = 290;
 //-----------------------Audio Player-------------------------//
-//final player = AudioPlayer();
+final player = AudioPlayer();
 
 //--------------------------Background for statistics--------------------------//
 

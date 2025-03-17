@@ -9,6 +9,7 @@ import 'game4.dart';
 import 'functions.dart';
 import 'constants.dart';
 import 'package:provider/provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 
 
@@ -46,19 +47,39 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   @override
-  void initState() 
+  void initState()
   {
     super.initState();
     initAudio();
     WidgetsBinding.instance.addObserver(this);
+    stopBackgroundMusic(bgMusicPlayer);
+    stopBackgroundMusic(gameMusicPlayer);
+    playBackgroundMusic(bgMusicPlayer);
   }
-  
+
   @override
   void dispose() {
-    //player.dispose();
+    bgMusicPlayer.dispose();  // Stop music when app closes
+    gameMusicPlayer.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
+
+  // void _playBackgroundMusic() async {
+  //   await bgMusicPlayer.stop(); // Stop any existing music before playing
+  //   await bgMusicPlayer.setReleaseMode(ReleaseMode.loop); // Ensure looping
+  //   await bgMusicPlayer.play(AssetSource('background_music.mp3'));
+  //
+  //   // Ensure only one instance of looping occurs
+  //   bgMusicPlayer.onPlayerComplete.listen((event) async {
+  //     await bgMusicPlayer.seek(Duration.zero); // Restart the music
+  //     await bgMusicPlayer.resume();
+  //   });
+  // }
+  //
+  // void _stopBackgroundMusic() async {
+  //   await bgMusicPlayer.stop();  // Stop background music when switching to game
+  // }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -67,7 +88,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       BLE_Connection().disconnect();
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     var appState = context.watch<BLE_Connection>();
@@ -78,7 +99,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       body: backgroundGradient(
          Center(
            child: Column(
-            
+
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               const Spacer(flex: 2),
@@ -112,42 +133,55 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
 
 //--------------------------------Start Button---------------------------------//
-              Padding(
-                padding: const EdgeInsets.only(top: 50), // Adjust this value to move it down
-                child: GestureDetector(
-                  onTap: () {
-                    if (BLE_Connection().esp_device != null) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const ChoosingGame()),
-                      );
-                    } else {
-                      showAlert(
-                        const ConnectPage(homescreen: MyHomePage(title: "")),
-                        context,
-                      );
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(0), // Ensures image stays inside the border
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10), // Ensures the image corners match the border
-                      child: Image.asset(
-                        'assets/play_button.png',
-                        width: 250,
-                        height: 250,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // const Spacer(),
-
+      Padding(
+      padding: const EdgeInsets.only(top: 50), // Adjust this value to move it down
+      child: GestureDetector(
+        onTap: () {
+          // Play the click sound first
+          final player2 = AudioPlayer(); // Create a new instance for each press
+          player2.play(AssetSource('button_sound.mp3')).then((_)
+          {
+            // After playing the sound, handle navigation
+            if (BLE_Connection().esp_device != null) {
+              Future.delayed(const Duration(milliseconds: 200), () { // Small delay to ensure sound plays
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ChoosingGame()),
+                );
+              });
+            } else {
+              Future.delayed(const Duration(milliseconds: 200), () {
+                showAlert(
+                  const ConnectPage(homescreen: MyHomePage(title: "")),
+                  context,
+                );
+              });
+            }
+          }).catchError((error) {
+            print("Error playing sound: $error"); // Handle errors gracefully
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.all(0), // Ensures image stays inside the border
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10), // Ensures the image corners match the border
+            child: Image.asset(
+              'assets/play_button.png',
+              width: 250,
+              height: 250,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+      ),
+    ),
 
 //---------------------------------Bluetooth Connection Page---------------------------------//
               GestureDetector(
                 onTap: () {
+                  final player2 = AudioPlayer();
+                  player2.play(AssetSource('button_sound.mp3')); // Play sound instantly
+
                   Navigator.push(
                     context,
                     MaterialPageRoute(

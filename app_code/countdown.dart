@@ -1,5 +1,6 @@
 import 'dart:async';
-
+import 'constants.dart';
+import 'countdown.dart';
 import 'functions.dart';
 import 'package:flutter/material.dart';
 
@@ -25,15 +26,16 @@ class _CountDownState extends State<CountDown> {
 //-----------------------------------------------Activate Timer for 3 Seconds----------------------------------//
   void setCountDown()
   {
+    playBackgroundMusic(countdownPlayer);
     Duration oneSec = const Duration(seconds: 1);
     timer = Timer.periodic(oneSec, 
     (Timer timer) async {
         if(current_time == 0)
         {
           timer.cancel();
-          
           if(context.mounted)
           {
+            playBackgroundMusic(gameMusicPlayer);
             Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => widget.nextScreen));

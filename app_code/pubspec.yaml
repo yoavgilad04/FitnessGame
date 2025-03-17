@@ -8,6 +8,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  audioplayers: ^5.2.1
   provider: 6.0.4 # Compatible with Dart >=3.0.0
   flutter_blue_plus: 1.2.0 # Compatible with Flutter 3.13.0 and Dart >=3.0.0
   geolocator: ^10.0.3 # Compatible with Flutter 3.13.0
@@ -28,5 +29,9 @@ flutter:
     - assets/connect_button.png
     - assets/settings_button.png
     - assets/background.png
+    - assets/button_sound.mp3
+    - assets/background_music.mp3
+    - assets/game_music.mp3
+    - assets/countdown.mp3
   uses-material-design: true
 
