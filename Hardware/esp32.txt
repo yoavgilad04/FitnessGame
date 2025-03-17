@@ -1,41 +1,49 @@
-#include <Arduino.h>
 #include <esp_now.h>
-#include <esp_system.h>
 #include <WiFi.h>
 #include <Adafruit_NeoPixel.h> // for light
 #include <chrono>              // for time.
 
+// configuration  for Adafruit
 #ifdef __AVR__
 #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
 #endif
-
 #if defined(__AVR_ATtiny85__) && (F_CPU == 16000000)
 clock_prescale_set(clock_div_1);
 #endif
 
-#define CHANNEL 1 // the ESP-NOW channel
-#define ESP_NOW_ROLE_COMBO 3
+// the ESP-NOW channel (need to be the same on the 8266)
+#define CHANNEL 1
 
-#define NO_BLINK 0
-#define YES_BLINK 1
 // Setting Up the Neopixels
 #define PIN 2        // the neopixels pin 2 is for D2 - Which pin on the esp32 is connected to the NeoPixels?
 #define NUMPIXELS 16 // Popular NeoPixel ring size - How many NeoPixels are attached to the Arduino?
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
-#define NUMBER_OF_COLORS 9
+#define NUMBER_OF_COLORS 9 // RED and GREEN for UI and - BLUE, BROWN, CYAN,WHITE, ORANGE, PINK, PURPEL - for the players.
+#define NUM_OF_PEERS 30
+
+#define MAC_ADD_BYTES 6
+//  the last address is of the esp32.
+
+// one lamp of esp32 and three lamps of 8266
 #define ESP32_LAMP 1
-#define NUM_OF_PEERS_IN_ARRAY 4
-#define NUM_OF_PEERS 3
+
 #define ON 1
 #define OFF 0
 #define SUCCESS 1
 #define INDEX_CORECTION 3
-const byte buttonPin = 5; // the number of the pushbutton pin - connect to D5 on the ESP32
-int buttonState = 0;      // variable for reading the pushbutton status - will change to 1 when button is pushed.
+#define WITHOUT_BLINKING 0
+#define WITH_BLINKING 1
+
+/// @param buttonPin the number of the pushbutton pin - connect to D5 on the ESP32
+const byte buttonPin = 5;
+
+/// @param buttonState variable for reading the pushbutton status - will change to 1 when button is pushed.
+int buttonState = 0;
+
 int color_for_player_number_1 = 0, color_for_player_number_2 = 0;
 
-int good = 0, not_good = 0;
+int valid_push = 0, invalid_push = 0;
 
 int color_pushed_counter[NUMBER_OF_COLORS + 1];
 bool light_status[NUM_OF_PEERS + 2];
@@ -45,11 +53,9 @@ bool paused = false;
 int lamp_pushed_number = 1; // the lamp that was just turned off.
 int index_for_training = 0, max_index_of_training = 0;
 int training[500] = {0};
-
+int actuallExternalConnectedPeers = 0;
 int time_remain = 0;
 std::chrono::steady_clock::time_point startTime; // Global variable for time.
-
-uint8_t peer_addr[NUM_OF_PEERS_IN_ARRAY][6] = {{0x86, 0xF3, 0xEB, 0xB3, 0xF3, 0xF3}, {0x86, 0xF3, 0xEB, 0x73, 0x4B, 0xE2}, {0x52, 0x02, 0x91, 0x4E, 0x71, 0x33}, {0x8C, 0xAA, 0xB5, 0xC6, 0x8C, 0xAF}}; //{0x0C, 0xB8, 0x15 , 0x77, 0x71 , 0x39},
 enum GAMEstate
 {
   GAME1 = 1,
@@ -81,6 +87,7 @@ enum RGBColor color_on_the_32 = RED;
 int game1(enum RGBColor random_or_color, bool trainings);
 int turnOnAndWaitUntillButtonPushed(int lamp_number, RGBColor color);
 void trafficLight();
+void RfreshingNewPeers();
 
 void game2(enum RGBColor color);
 int who_is_first(int lamp_with_chosen_color);
@@ -102,6 +109,8 @@ void espnowErrorConnecetionLight();
 void errorViaBluetooth();
 int giveDifferenteLampNumberThan(int lamp);
 int waitForRespond8266();
+void resetPeerArr();
+
 int waitForRespond32();
 void sendGameStateToEveryOne(GAMEstate game);
 void colorPushedCounterResetToZero();
@@ -113,11 +122,44 @@ void lightsStatusResetToOff();
 void remember_low_f();
 void stop_if_pause();
 void game3(int color_for_player_number_1, int color_for_player_number_2);
+esp_now_peer_info_t peer[NUM_OF_PEERS];
+
+typedef struct Message
+{
+  uint8_t type; // 0 = Discovery, 1 = Data
+} Message;
+
+void addPeer(const uint8_t *macAddr)
+{
+  if (actuallExternalConnectedPeers >= NUM_OF_PEERS)
+   { return; // Avoid exceeding max peers
+    }
+
+  esp_now_peer_info_t newPeer;
+  memset(&newPeer, 0, sizeof(newPeer));
+  memcpy(newPeer.peer_addr, macAddr, 6);
+  newPeer.channel = 0;
+  newPeer.encrypt = false;
+
+  esp_err_t result = esp_now_add_peer(&newPeer);
+
+  if (result == ESP_OK)
+  {
+    Serial.println("New ESP8266 added successfully!");
+    memcpy(&peer[actuallExternalConnectedPeers], &newPeer, sizeof(newPeer));
+    actuallExternalConnectedPeers++;
+  }
+  else
+  {
+    Serial.println("Failed to add ESP8266.");
+    Serial.println(result);
+  }
+}
 // Init ESP Now with fallback
 void InitESPNow()
 {
 
-  WiFi.disconnect();
+ // WiFi.disconnect();
   if (esp_now_init() == ESP_OK)
   {
     // espnowConnecetSucssefullyLight();
@@ -142,7 +184,7 @@ GAMEstate game_state_to_send = NOT_DECIDED;
 int n_to_blink = 0;
 int p_to_blink = 0;
 
-uint8_t data_inf[4] = {0};
+uint8_t data_inf[6] = {0};
 
 void sendData(int i)
 {
@@ -150,11 +192,12 @@ void sendData(int i)
   data_inf[1] = static_cast<uint8_t>(color_to_send);
   data_inf[2] = n_to_blink;
   data_inf[3] = p_to_blink;
-
+  data_inf[4] = i + 2;
+  data_inf[5] = 0; //its not saying hello now 
   Serial.print("Sending color number: ");
   Serial.println(data_inf[1]);
 
-  esp_err_t result = esp_now_send(peer_addr[i], data_inf, sizeof(data_inf));
+  esp_err_t result = esp_now_send(peer[i].peer_addr, data_inf, sizeof(data_inf));
 
   Serial.print("Send Status: ");
   if (result == ESP_OK)
@@ -187,83 +230,160 @@ void sendData(int i)
   {
     Serial.println("Not sure what happened");
   }
+  RfreshingNewPeers();
   // espnowErrorConnecetionLight();
 }
+void addBroadcastPeer()
+{
+  esp_now_peer_info_t peer;
+  memset(&peer, 0, sizeof(peer));
 
+  uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  memcpy(peer.peer_addr, broadcastAddress, 6);
+  peer.channel = 0;
+  peer.encrypt = false; // No encryption
+
+  if (esp_now_add_peer(&peer) == ESP_OK)
+  {
+    Serial.println("Broadcast peer added successfully!");
+  }
+  else
+  {
+    Serial.println("Failed to add broadcast peer.");
+  }
+}
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+void sendHelloToEveryOne()
+{
+  data_inf[5] = 1; // say hello
+  esp_err_t result = esp_now_send(broadcastAddress, data_inf, sizeof(data_inf));
+
+  Serial.print("Send Status: ");
+  if (result == ESP_OK)
+  {
+    Serial.println("Success");
+    return;
+  }
+  else if (result == ESP_ERR_ESPNOW_NOT_INIT)
+  {
+    // How did we get so far!!
+    Serial.println("ESPNOW not Init.");
+  }
+  else if (result == ESP_ERR_ESPNOW_ARG)
+  {
+    Serial.println("Invalid Argument");
+  }
+  else if (result == ESP_ERR_ESPNOW_INTERNAL)
+  {
+    Serial.println("Internal Error");
+  }
+  else if (result == ESP_ERR_ESPNOW_NO_MEM)
+  {
+    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
+  }
+  else if (result == ESP_ERR_ESPNOW_NOT_FOUND)
+  {
+    Serial.println("Peer not found.");
+  }
+  else
+  {
+    Serial.println("Not sure what happened");
+  }
+}
 // callback when data is sent from Master to Slave
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
-
   if (status != ESP_NOW_SEND_SUCCESS)
   {
- 
+
     turnAllOfThemeOff();
     errorViaBluetooth();
     fleshColor(RED, 6, 6);
     ESP.restart();
   }
 }
+
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
-  switch (state_of_game)
+  if (data[2] == 1) //IM HERE AND THATS MY NAME
   {
-  case 1: // GAME1
-  {
-    /* danger! danger! ---- if you pu her: "button_has_been_pushed = true;" you will
-      have a big bug in your progrem! put thet sentance at the end of this function*/
-    Serial.print("change buttonstat_elsewhere to false");
-    char macStr[18];
-    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-    Serial.print("Last Packet Recv from: ");
-    Serial.println(macStr);
-    Serial.print("Last Packet Recv Data: ");
-    Serial.println(*data);
-    Serial.println("");
-
-    // you put that last!
-    button_has_been_pushed = true;
+    Serial.print("ESP8266 Responded! MAC: ");
+    addPeer(mac_addr);
   }
-  case 2:                         // GAME2
-    lamp_pushed_number = data[0]; // data[0] is the number of the lamp that was pushed.
-    button_has_been_pushed = true;
-    break;
-  case 3:                            // GAME3
-    color_pushed_counter[data[1]]++; // data[1] will contain the color that lamp number data[0] was turn on and just pushed right now.
-    light_status[data[0]] = OFF;     // data[0] is the number of the lamp that was pushed.
-    break;
-  case 4: // GAME4
+  else
   {
-    Serial.print("change buttonstat_elsewhere to false");
-    char macStr[18];
-    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-    Serial.print("Last Packet Recv from: ");
-    Serial.println(macStr);
-    Serial.print("Last Packet Recv Data: ");
-    Serial.println(*data);
-    Serial.println("");
+    switch (state_of_game)
+    {
+    case 1: // GAME1
+    {
+      /* danger! danger! ---- if you pu her: "button_has_been_pushed = true;" you will
+        have a big bug in your progrem! put thet sentance at the end of this function*/
+      Serial.print("change buttonstat_elsewhere to false");
+      char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+               mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+      Serial.print("Last Packet Recv from: ");
+      Serial.println(macStr);
+      Serial.print("Last Packet Recv Data: ");
+      Serial.println(*data);
+      Serial.println("");
 
-    // you put that last!
-    button_has_been_pushed = true;
-  }
-  break;
-  case 5: // TRAINING
-    training[index_for_training++] = data[0];
-    max_index_of_training = index_for_training;
-    button_has_been_pushed = true;
+      // you put that last!
+      button_has_been_pushed = true;
+    }
+    case 2:                         // GAME2
+      lamp_pushed_number = data[0]; // data[0] is the number of the lamp that was pushed.
+      button_has_been_pushed = true;
+      break;
+    case 3:                            // GAME3
+      color_pushed_counter[data[1]]++; // data[1] will contain the color that lamp number data[0] was turn on and just pushed right now.
+      light_status[data[0]] = OFF;     // data[0] is the number of the lamp that was pushed.
+      break;
+    case 4: // GAME4
+    {
+      Serial.print("change buttonstat_elsewhere to false");
+      char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+               mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+      Serial.print("Last Packet Recv from: ");
+      Serial.println(macStr);
+      Serial.print("Last Packet Recv Data: ");
+      Serial.println(*data);
+      Serial.println("");
+
+      // you put that last!
+      button_has_been_pushed = true;
+    }
     break;
-  case 6: // PAUSE
-    break;
-  case 7: // BLINK
-    break;
-  case 8: // TURN_OFF
-    break;
-  case 9: // NOT_DECIDED
-    break;
-  default:
-    Serial.println("Invalid choice.");
-    break;
+    case 5: // TRAINING
+      training[index_for_training++] = data[0];
+      max_index_of_training = index_for_training;
+      button_has_been_pushed = true;
+      break;
+    case 6: // PAUSE
+      break;
+    case 7: // BLINK
+      break;
+    case 8: // TURN_OFF
+      break;
+    case 9: // NOT_DECIDED
+      Message msg;
+      memcpy(&msg, data, sizeof(msg));
+
+      if (msg.type == 1)
+      { // Response from ESP8266
+        Serial.print("ESP8266 Responded! MAC: ");
+        for (int i = 0; i < 6; i++)
+          Serial.printf("%02X:", mac_addr[i]);
+        Serial.println();
+        addPeer(mac_addr);
+      }
+      break;
+    default:
+      Serial.println("Invalid choice.");
+      break;
+    }
   }
 }
 
@@ -329,7 +449,6 @@ class MyCallbacks : public BLECharacteristicCallbacks
 
 /////////////////////////////////////////////////////
 // Add the ESP8266 as a peer
-esp_now_peer_info_t peer[NUM_OF_PEERS];
 void setup()
 {
   delay(2000);
@@ -386,34 +505,14 @@ void setup()
   //  register functions
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
-
-  for (int i = 0; i < NUM_OF_PEERS; i++)
-  {
-    memcpy(peer[i].peer_addr, peer_addr[i], 6);
-    peer[i].channel = 0;
-    peer[i].encrypt = false;
-    if (esp_now_add_peer(&peer[i]) != ESP_OK)
-    {
-      Serial.print("Failed to add peer number ");
-      Serial.println(i + 2);
-      Serial.print("not initiated anyone after that include.");
-      // ofek tell the user that we are going to a restart.
-      ESP.restart();
-      return;
-    }
-    else
-    {
-      Serial.print("added peer number: ");
-      Serial.println(i + 2);
-    }
-  }
-  Serial.println("Ready to send messages");
+  addBroadcastPeer();
 
   state_of_game = NOT_DECIDED;
 }
 bool first_time = true;
-bool blink_once_after_game = true;
+bool blink_once_after_game = false;
 bool train = false;
+int count = 0;
 void loop()
 {
 
@@ -422,6 +521,8 @@ void loop()
   switch (state_of_game)
   {
   case 1: // GAME1
+    fleshColor(CYAN, actuallExternalConnectedPeers, actuallExternalConnectedPeers);
+
     trafficLight();
     delay(1000);
     index_for_training = 0;
@@ -446,15 +547,15 @@ void loop()
     delay(1000);
     game2(static_cast<enum RGBColor>(color_for_player_number_1));
 
-    val[0] = good;
-    val[1] = not_good;
+    val[0] = valid_push;
+    val[1] = invalid_push;
     pCharacteristic->setValue(val, sizeof(val));
     pCharacteristic->notify();
 
     // end of game
     blinkColorToEveryone(RED, 3, 1);
-    good = 0;
-    not_good = 0;
+    valid_push = 0;
+    invalid_push = 0;
     blink_once_after_game = true;
 
     state_of_game = NOT_DECIDED;
@@ -524,47 +625,122 @@ void loop()
   case 8: // TURN_OFF
     break;
   case 9: // NOT_DECIDED
+ 
+    RfreshingNewPeers();     
+   
     if (deviceConnected == false)
     {
       BLEDevice::startAdvertising();
-      blinkColorToEveryone(RED, 3, 3);
+
+      blinkColorToEveryone(RED, actuallExternalConnectedPeers+1, actuallExternalConnectedPeers+1);
+    
+        delay(1000);
       first_time = true;
       uint8_t val[1] = {0};
       val[0] = 100;
       pCharacteristic->setValue(val, sizeof(val));
       pCharacteristic->notify();
+     
     }
     else
     {
+      blinkColorToEveryone(BLUE, actuallExternalConnectedPeers+1, actuallExternalConnectedPeers+1);
+
       if (first_time || blink_once_after_game)
       {
-        blinkColorToEveryone(BLUE, 3, 1);
         first_time = false;
-        blink_once_after_game = false;
         uint8_t val[1] = {0};
         val[0] = 100;
         pCharacteristic->setValue(val, sizeof(val));
         pCharacteristic->notify();
       }
+      if (blink_once_after_game)
+      {
+        RfreshingNewPeers();
+        delay(1000);
+        blinkColorToEveryone(BROWN, 3, 1);
+        blink_once_after_game = false;
+      }
+      
       turnAllOfThemeOff();
     }
+
     break;
   default:
     Serial.println("Invalid choice.");
     break;
   }
 }
+void resetESPNow() 
+{
+  esp_now_peer_num_t peerCount;
+  esp_now_get_peer_num(&peerCount);
+  
+  Serial.print("Removing ");
+  Serial.print(peerCount.total_num);
+  Serial.println(" peers...");
+
+  esp_now_peer_info_t peerInfo;
+  esp_err_t result;
+  
+  for (int i = 0; i < peerCount.total_num; i++) {
+      if (esp_now_fetch_peer(true, &peerInfo) == ESP_OK) { // Get and remove the first peer
+          result = esp_now_del_peer(peerInfo.peer_addr);
+          if (result == ESP_OK) {
+              Serial.print("Removed peer: ");
+              for (int j = 0; j < 6; j++) Serial.printf("%02X:", peerInfo.peer_addr[j]);
+              Serial.println();
+          } else {
+              Serial.print("Failed to remove peer. Error code: ");
+              Serial.println(result);
+          }
+      }
+  }
+}
+static unsigned long lastHelloTime = 0;
+void resetPeerArr()
+{
+  resetESPNow();
+  
+  memset(peer, 0, sizeof(peer));//deleting the array of peers
+  actuallExternalConnectedPeers = 0;
+}
+void RfreshingNewPeers()
+{
+
+  if (millis() - lastHelloTime > 1)
+
+  { // Broadcast every 0.001 sec
+   // blinkColorToEveryone(ORANGE, 3, 3);
+
+    lastHelloTime = millis();
+    resetPeerArr();
+    sendHelloToEveryOne();
+    static unsigned long waitsometime = 0;
+    waitsometime = millis();
+
+    while (millis() - waitsometime < 1000)
+    {
+      /* busy wait here for 1000 miliseconds */
+    }
+
+      blinkColorToEveryone(GREEN, actuallExternalConnectedPeers+1, actuallExternalConnectedPeers+1);
+ 
+
+    
+  }
+}
 int game1(enum RGBColor random_or_color, bool trainings)
 {
   turnAllOfThemeOff(); // just for case of a bug
   Serial.println("start timer");
-  startTimer(YES_BLINK); // Start the timer
+  startTimer(WITH_BLINKING); // Start the timer
   int lamp_number = 0, rounds = 0, clicks = 0;
   RGBColor color;
 
   while (((rounds < max_rounds_of_the_game) && (TimeExceeded() == false) && (state_of_game != TURN_OFF))) // && (max_index_of_training == 0 || index_for_training <= max_index_of_training))
   {
-    lamp_number = ((trainings == true) ? training[index_for_training++] : random(1, NUM_OF_PEERS + 2)); // 1 or 2 or 3 or ... 5-1
+    lamp_number = ((trainings == true) ? training[index_for_training++] : random(1, actuallExternalConnectedPeers + 2)); // 1 or 2 or 3 or ... 5-1
     color = ((random_or_color) ? (random_or_color) : static_cast<enum RGBColor>(random(3, NUMBER_OF_COLORS + 1)));
     clicks += turnOnAndWaitUntillButtonPushed(lamp_number, color);
     rounds++;
@@ -626,12 +802,12 @@ void turnOffAfterPushedWithFlesh()
 
 void game2(enum RGBColor color)
 {
-  turnAllOfThemeOff();   // just for case of a bug
-  startTimer(YES_BLINK); // Start the timer
+  turnAllOfThemeOff();       // just for case of a bug
+  startTimer(WITH_BLINKING); // Start the timer
 
   int lamp_with_chosen_color = 0, rounds = 0, score = 0;
   RGBColor colors[NUMBER_OF_COLORS - 2] = {BLUE, BROWN, CYAN, WHITE, ORANGE, PINK, PURPEL}; //{NO_COLOR};
-  switchColor(0, (static_cast<int>(color) - INDEX_CORECTION), colors);                                   
+  switchColor(0, (static_cast<int>(color) - INDEX_CORECTION), colors);
 
   if (color == NO_COLOR)
     PutNoColorInArr(colors);
@@ -645,9 +821,9 @@ void game2(enum RGBColor color)
     lamp_with_chosen_color = turnAllLightsOnInDiffrentColors(color, colors);
 
     // if the correct lamp ("lamp_with_chosen_color") pushed first, will return 1, if other lamp has been pushed first, return -1,if time end, return 0.
-    (who_is_first(lamp_with_chosen_color) == SUCCESS) ? good++ : not_good++;
+    (who_is_first(lamp_with_chosen_color) == SUCCESS) ? valid_push++ : invalid_push++;
     if (TimeExceeded() == true)
-      not_good--;
+      invalid_push--;
 
     // turning off all lamps.
     turnAllOfThemeOff();
@@ -660,9 +836,9 @@ void game2(enum RGBColor color)
 int turnAllLightsOnInDiffrentColors(enum RGBColor color, RGBColor colors[])
 {
   int color_index = 1, lamp_with_chosen_color = 0;
-  lamp_with_chosen_color = random(1, NUM_OF_PEERS + 2);
+  lamp_with_chosen_color = random(1, actuallExternalConnectedPeers + 2);
 
-  for (int i = 1; i < NUM_OF_PEERS + 2; i++)
+  for (int i = 1; i < actuallExternalConnectedPeers + 2; i++)
   {
     if (i == lamp_with_chosen_color)
       continue;
@@ -702,7 +878,7 @@ int who_is_first(int lamp_with_chosen_color)
 
 int putDiffrentColorsInArray(RGBColor colors[], int index)
 {
-  if (index > NUM_OF_PEERS)
+  if (index > actuallExternalConnectedPeers)
     return 0;
 
   switchColor(index, random(index, NUMBER_OF_COLORS - 2), colors);
@@ -749,11 +925,11 @@ int putDiffrentColorsInArray(RGBColor color, RGBColor colors[], int index)
 
 void game3(int color_for_player_number_1, int color_for_player_number_2)
 {
-  startTimer(YES_BLINK);    // Start the timer
-  lightsStatusResetToOff(); // turn all lights off and update the array of light status to "off" for all lights.
+  startTimer(WITH_BLINKING); // Start the timer
+  lightsStatusResetToOff();  // turn all lights off and update the array of light status to "off" for all lights.
   colorPushedCounterResetToZero();
 
-  int lamp_for_palyer_number_1 = random(1, NUM_OF_PEERS + 2);
+  int lamp_for_palyer_number_1 = random(1, actuallExternalConnectedPeers + 2);
   int lamp_for_palyer_number_2 = giveDifferenteLampNumberThan(lamp_for_palyer_number_1);
 
   while ((TimeExceeded() == false) && (state_of_game != TURN_OFF))
@@ -797,7 +973,7 @@ int giveDifferenteLampNumberThan(int lamp)
   int differente_lamp_number;
   while (1)
   {
-    differente_lamp_number = random(1, NUM_OF_PEERS + 2);
+    differente_lamp_number = random(1, actuallExternalConnectedPeers + 2);
     if (differente_lamp_number != lamp)
       return differente_lamp_number;
   }
@@ -843,7 +1019,7 @@ void blinkColorToEveryone(RGBColor color, int n, int p)
   n_to_blink = n;
   p_to_blink = p;
 
-  for (int i = 0; i < NUM_OF_PEERS; i++)
+  for (int i = 0; i < actuallExternalConnectedPeers; i++)
   {
     sendData(i);
   }
@@ -941,8 +1117,9 @@ void espnowErrorConnecetionLight()
 }
 void startTimer(bool blink_or_not)
 {
-  if (blink_or_not != NO_BLINK)
+  if (blink_or_not == WITH_BLINKING)
     blinkColorToEveryone(GREEN, 5, 100);
+
   startTime = std::chrono::steady_clock::now(); // Set the start time
   return;
 }
@@ -968,7 +1145,7 @@ void stopTimer()
 void resumTimer()
 {
   max_time_of_the_game = time_remain;
-  startTimer(NO_BLINK);
+  startTimer(WITHOUT_BLINKING);
 }
 void stop_if_pause()
 {
@@ -991,7 +1168,7 @@ void stop_if_pause()
 void sendGameStateToEveryOne(GAMEstate game)
 {
   game_state_to_send = game;
-  for (int i = 0; i < NUM_OF_PEERS; i++)
+  for (int i = 0; i < actuallExternalConnectedPeers; i++)
   {
     sendData(i);
   }
@@ -1015,7 +1192,7 @@ void bufferForButton()
 void lightsStatusResetToOff()
 {
   turnAllOfThemeOff();
-  for (int i = 0; i < NUM_OF_PEERS + 2; i++)
+  for (int i = 0; i < actuallExternalConnectedPeers + 2; i++)
   {
     light_status[i] = OFF;
   }

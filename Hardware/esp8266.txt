@@ -134,6 +134,7 @@ typedef struct {
   uint8_t encrypt;       // Encryption enabled flag
   uint8_t reserved[13];  // Reserved for future use
 } esp_now_peer_info_t;
+
 enum esp_now_send_status_t {
   ESP_NOW_SEND_SUCCESS,     // Data sent successfully
   ESP_NOW_SEND_FAIL,        // Failed to send data
@@ -173,7 +174,7 @@ void InitESPNow() {
 // If not, pair the slave with master
 uint8_t peer_addr[] = { 0x0C, 0xB8, 0x15, 0x77, 0x71, 0x39 };
 
-uint8_t data_to_send[2] = { 0 };  // = my_number;
+uint8_t data_to_send[3] = { 0 };  // = my_number;
 // send data
 void sendData() {
   //data++;
@@ -214,22 +215,32 @@ void OnDataSent(uint8_t *mac_addr, uint8_t status) {
 }
 // callback when data is recv from Master
 void OnDataRecv(uint8_t *mac_addr, uint8_t *data_recived, uint8_t data_len) {
-  reciv_is_on = true;
-  what_color_now = static_cast<enum RGBColor>(data_recived[1]);
-  data_to_send[1] = static_cast<uint8_t>(data_recived[1]);
-  n_to_blink = static_cast<int>(data_recived[2]);
-  p_to_blink = static_cast<int>(data_recived[3]);
-  state_of_game = static_cast<enum GAMEstate>(data_recived[0]);
+
+  if ((data_recived[5]) == 1) { //esp32 say hello
+
+      data_to_send[2] = 1; //IM HERE 
+      esp_now_send(peer_addr, data_to_send, sizeof(data_to_send)); //AND THATS MY NAME
+
+  } else {
+    reciv_is_on = true;
+    what_color_now = static_cast<enum RGBColor>(data_recived[1]);
+    data_to_send[1] = static_cast<uint8_t>(data_recived[1]);
+    n_to_blink = static_cast<int>(data_recived[2]);
+    p_to_blink = static_cast<int>(data_recived[3]);
+    data_to_send[0] = static_cast<uint8_t>(data_recived[4]);
+    state_of_game = static_cast<enum GAMEstate>(data_recived[0]);
+    data_to_send[2] = 0;
 
 
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print("Last Packet Recv from: ");
-  Serial.println(macStr);
-  Serial.print("Last Packet Recv Data: ");
-  Serial.println(data_recived[1]);
-  Serial.println("");
+    char macStr[18];
+    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+    Serial.print("Last Packet Recv from: ");
+    Serial.println(macStr);
+    Serial.print("Last Packet Recv Data: ");
+    Serial.println(data_recived[1]);
+    Serial.println("");
+  }
 }
 
 void setup() {
@@ -242,9 +253,15 @@ void setup() {
   fleshColor(GREEN, 3, 3);
 
   //Set device in AP and STA mode to begin the comunication
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_STA);
 
   Serial.println("ESPNow/bidirectional_esp8266");
+  Serial.println("2");
+  Serial.println("3");
+  Serial.println("4");
+  Serial.println("5");
+  Serial.println("6");
+
   byte mac[6];
   // This is the mac address of the Master in Station Mode
   Serial.print("STA MAC: ");
@@ -261,21 +278,28 @@ void setup() {
     Serial.println("esp_now iniial success");
   }
 
+    uint8_t role = ESP_NOW_ROLE_SLAVE;  // ESP8266 is typically a slave
+    uint8_t channel = 0;  // Use default Wi-Fi channel
+    uint8_t *key = NULL;  // No encryption
+    uint8_t key_len = 0;  // Length of key (0 since no encryption)
+
+    if (esp_now_add_peer(peer_addr, role, channel, key, key_len) == 0) {
+        Serial.println("New ESP32 added successfully!");
+
+    } else {
+        Serial.println("Failed to add ESP32.");
+    }
+
   //  register functions
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
   Serial.println("Ready to send messages");
   WiFi.macAddress(mac);
   Serial.println(mac[3]);
-  if (mac[3] == 179) {
-    data_to_send[0] = static_cast<uint8_t>(2);
-  } else if (mac[3] == 115) {
-    data_to_send[0] = static_cast<uint8_t>(3);
-  } else {
-    data_to_send[0] = static_cast<uint8_t>(4);
-  }
+  Serial.print("STA MAC: ");
 }
 
+bool printedFirstMessege = false;
 void loop() {
 
   switch (state_of_game) {
@@ -315,7 +339,11 @@ void loop() {
       state_of_game = NOT_DECIDED;
       break;
     case 9:  // NOT_DECIDED
-      Serial.println("NOT DECIDED");
+
+      if (printedFirstMessege == false) {
+        Serial.println("NOT DECIDED");
+        printedFirstMessege = true;
+      }
       break;
     default:
       Serial.println("Invalid choice.");
@@ -328,7 +356,9 @@ void game() {
     if (reciv_is_on == true) {
       reciv_is_on = false;
       Serial.println("recive_on is false again");
+
       turnPixelsOn(what_color_now);
+
       Serial.println("COLOR:");
       Serial.println(what_color_now);
       Serial.println("color turned on");
@@ -340,6 +370,7 @@ void game() {
         buttonState = digitalRead(buttonPin);
         if (buttonState == LOW) {
           fleshColor((state_of_game == TRAINING) ? GREEN : what_color_now, 3, 21);
+
           //the game will stop until you reales that button.
           bufferForButton();
           sendData();
