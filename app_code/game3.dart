@@ -304,6 +304,7 @@ class _Game3TimerState extends State<Game3Timer> {
     (Timer timer) async {
         if(current_time == 0)
         {
+          stopBackgroundMusic(gameMusicPlayer);
           timer.cancel();
           setState(() {
             widget.waiting = true;
@@ -340,6 +341,7 @@ class _Game3TimerState extends State<Game3Timer> {
   @override
   void initState()
   {
+    stopBackgroundMusic(bgMusicPlayer);
     setCountDown();
     current_time = widget.time;
     // player.seek(const Duration(seconds: 0));

@@ -59,8 +59,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    bgMusicPlayer.dispose();  // Stop music when app closes
-    gameMusicPlayer.dispose();
+    // bgMusicPlayer.dispose();  // Stop music when app closes
+    // gameMusicPlayer.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

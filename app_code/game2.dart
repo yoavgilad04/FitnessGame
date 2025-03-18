@@ -231,6 +231,7 @@ class _Game2TimerState extends State<Game2Timer> {
     (Timer timer) async {
         if(current_time == 0)
         {
+          stopBackgroundMusic(gameMusicPlayer);
           timer.cancel();
           setState(() {
             widget.waiting = true;
@@ -266,6 +267,7 @@ class _Game2TimerState extends State<Game2Timer> {
   @override
   void initState()
   {
+    stopBackgroundMusic(bgMusicPlayer);
     setCountDown();
     current_time = widget.time;
     // player.seek(const Duration(seconds: 0));
@@ -422,6 +424,7 @@ class Game2_Stats extends StatelessWidget
 //------------------------------------------Go Back to MyHomePage---------------------------------------//
               ElevatedButton(
                 onPressed: () => {
+
                   Navigator.of(context).pushAndRemoveUntil(
                                           MaterialPageRoute(builder: (context) => homescreen),
                                           (route) => false,

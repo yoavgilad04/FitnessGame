@@ -316,23 +316,41 @@ class _Game1TimerState extends State<Game1Timer> {
             ),
             const Spacer(),
 //------------------------------------------------------Finish Button--------------------------//
-            ElevatedButton(
-              
-              onPressed: (!widget.waiting) ? () async => {
-                actualTime = widget.time - current_time,
-                timer.cancel(),
-                setState(() {
-                  widget.waiting = true;
-                }),
-                BLE_Connection().write([8,1,1,1]),
-                await Future.delayed(const Duration(seconds: 4)),
-                Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => Game1_Stats(actual_time: actualTime,homescreen: widget.homescreen,name: widget.name,))),
-              } : null, 
-              child: buttonTextDisplay(Text("Finish",
-                style: Theme.of(context).textTheme.displayMedium))
+              ElevatedButton(
+                onPressed: (!widget.waiting)
+                    ? () async {
+                  // Call stopBackgroundMusic when the button is pressed
+                  stopBackgroundMusic(gameMusicPlayer);
+                  playBackgroundMusic(bgMusicPlayer);
+
+                  actualTime = widget.time - current_time;
+                  timer.cancel();
+
+                  setState(() {
+                    widget.waiting = true;
+                  });
+                  BLE_Connection().write([8, 1, 1, 1]);
+                  await Future.delayed(const Duration(seconds: 4));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => Game1_Stats(
+                        actual_time: actualTime,
+                        homescreen: widget.homescreen,
+                        name: widget.name,
+                      ),
+                    ),
+                  );
+                }
+                    : null,
+                child: buttonTextDisplay(
+                  Text(
+                    "Finish",
+                    style: Theme.of(context).textTheme.displayMedium,
+                  ),
+                ),
               ),
+
 //---------------------------------------------------Pause Button------------------------------------------//
             Padding(
               padding: const EdgeInsets.all(15.0),
