@@ -289,7 +289,7 @@ Widget displayTextAndIcon(int state, BuildContext context, List<double> paddings
     case 1 : icon = const Icon(Icons.fitness_center, size: 50, color: Colors.white,);
              text = game1_name; 
              break;
-    case 2 : icon = const Icon(CupertinoIcons.eyeglasses, size: 50,color: Colors.white,);
+    case 2 : icon = const Icon(Icons.school, size: 50,color: Colors.white,);
              text = game2_name; 
              break;
     case 3 : icon = const Icon(Icons.people_outline, size: 50,color: Colors.white,);

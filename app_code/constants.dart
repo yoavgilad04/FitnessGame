@@ -101,8 +101,12 @@ var text2 = RichText(
 AudioPlayer bgMusicPlayer = AudioPlayer(); // Background music player
 AudioPlayer gameMusicPlayer = AudioPlayer(); // Game music player
 AudioPlayer countdownPlayer = AudioPlayer();
+bool isMute = false;
+
 
 void playBackgroundMusic(AudioPlayer player) async {
+  if (isMute == true)
+    return;
   await player.stop(); // Stop any existing music before playing
   await player.setReleaseMode(ReleaseMode.loop); // Ensure looping
 
@@ -127,6 +131,8 @@ void playBackgroundMusic(AudioPlayer player) async {
 }
 
 void stopBackgroundMusic(AudioPlayer player) async {
+  if (isMute == true)
+    return;
   await player.stop(); // Stop the specified music player
 }
 
@@ -233,6 +239,7 @@ const TextTheme textStyle = TextTheme(
   displaySmall: TextStyle(fontSize: 15,
                           fontFamily: 'AnekMalayalam')
 );
+
 
 var darkTheme =   FlexThemeData.dark(
   scheme: flexScheme,
