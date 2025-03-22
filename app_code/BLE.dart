@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 //------------------------------------------------------------------------------------------------------------//
 //----------------------------------------BLE Connection Class------------------------------------------------//
@@ -27,9 +28,10 @@ class BLE_Connection extends ChangeNotifier{
   List<int> read_value = [15,10];
 
 //--------------------------------------------Check if Bluetooth is Activated------------------------------//
-  Future<bool> initBluetooth() async { 
+  Future<bool> initBluetooth() async {
     return await flutterblueplus.isOn;
-  }
+}
+
 
 //-------------------------------------------Check if GPS is Activated-------------------------------------//
   Future<bool> initGPS() async
@@ -43,6 +45,12 @@ class BLE_Connection extends ChangeNotifier{
     {
       return "You are already connected to the device";
     }
+    await [
+      Permission.bluetooth,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ].request();
     devices.clear();
     flutterblueplus.scan().listen((res) {
         if(!devices.contains(res))
