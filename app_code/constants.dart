@@ -120,12 +120,13 @@ void playBackgroundMusic(AudioPlayer player) async {
     musicFile = 'countdown.mp3';
   }
 
-  await player.play(AssetSource(musicFile));
 
   // Ensure looping only for background and game music
   if (musicFile != 'countdown.mp3') {
+    await player.play(AssetSource(musicFile));
     player.setReleaseMode(ReleaseMode.loop); // Enable looping
   } else {
+    player.play(AssetSource(musicFile));
     player.setReleaseMode(ReleaseMode.stop); // Play only once
   }
 }
